@@ -1,111 +1,118 @@
 import os
 import time
 import sys
+import random
 
-# Renk Ayarları
-G = '\033[92m' # Yeşil
-R = '\033[91m' # Kırmızı
-Y = '\033[93m' # Sarı
-C = '\033[96m' # Turkuaz
-B = '\033[94m' # Mavi
+# Renkler (Full Palet)
+G, R, Y, B, C, W = '\033[92m', '\033[91m', '\033[93m', '\033[94m', '\033[96m', '\033[97m'
+P = '\033[95m' # Mor (Dark Web)
 RESET = '\033[0m'
 
-def typing(text, speed=0.04):
+def slow_print(text, speed=0.02):
     for char in text:
-        sys.stdout.write(char)
-        sys.stdout.flush()
-        time.sleep(speed)
+        sys.stdout.write(char); sys.stdout.flush(); time.sleep(speed)
     print()
 
-def clear():
+def main():
     os.system('cls' if os.name == 'nt' else 'clear')
+    save_path = "Hacked_Data"
+    if not os.path.exists(save_path): os.makedirs(save_path)
 
-def start_game():
-    clear()
-    typing(R + ">>> INTRUSION DETECTED IN E-CORP CORE..." + RESET, 0.06)
-    typing(G + ">>> BYPASSING FIREWALL... [DONE]", 0.03)
-    typing(G + ">>> CONNECTED TO NODE: 192.168.1.1", 0.03)
-    time.sleep(1)
-    
-    fbi_level = 0
-    has_key = False
-    
+    # Değişkenler
+    fbi_risk = 0
+    balance = 0
+    identity = "Elliot"
+    inventory = []
+    dark_web_access = False
+
     while True:
-        print(f"\n{B}[Hacker: Elliot] [Tehlike: %{fbi_level}]{RESET}")
-        cmd_input = input(f"{G}root@e-corp:~# {RESET}").strip().lower().split()
+        # Gelişmiş HUD
+        risk_bar = "█" * (fbi_risk // 10) + "░" * (10 - (fbi_risk // 10))
+        print(f"\n{W}{'='*60}{RESET}")
+        print(f"{C}KİMLİK: {identity} | BİYE: {balance} BTC | FBI RİSK: [{risk_bar}] %{fbi_risk}{RESET}")
+        print(f"{W}{'='*60}{RESET}")
         
-        if not cmd_input: continue
-        cmd = cmd_input[0]
+        prompt = f"{R if identity == 'Mr.Robot' else G}{identity.lower()}@fsociety{RESET}:{B}~#{RESET} "
+        cmd_in = input(prompt).strip().lower().split()
+        if not cmd_in: continue
+        cmd = cmd_in[0]
 
-        # --- YARDIM MENÜSÜ ---
+        # --- KOMUTLAR ---
         if cmd == "help":
-            print(f"{C}ls{RESET} - Dosyaları gör")
-            print(f"{C}cat [dosya]{RESET} - İçeriği oku")
-            print(f"{C}hack [hedef]{RESET} - Sisteme sız (FBI riskli!)")
-            print(f"{C}whoami{RESET} - Kimliğini sorgula")
-            print(f"{C}shred [dosya]{RESET} - Dosyayı yok et")
-            print(f"{C}status{RESET} - FBI takip durumunu gör")
-
-        # --- DOSYA SİSTEMİ ---
-        elif cmd == "ls":
-            print("borc_listesi.db  wellick_mail.txt  kamera_sistem.sh  gizli_anahtar.enc")
+            print(f"{Y}TEMEL:{RESET} ls, whoami, clear, status, exit")
+            print(f"{Y}SALDIRI:{RESET} nmap, exploit [id], bruteforce [dosya], encrypt [dosya]")
+            print(f"{Y}SIZDIRMA:{RESET} download [dosya], upload [dosya]")
+            print(f"{Y}DARK WEB:{RESET} tor_connect, buy [item], mine_crypto")
+            print(f"{Y}SAVUNMA:{RESET} wipe_logs, ghost_mode, patch [id]")
 
         elif cmd == "whoami":
-            typing(Y + "...Ben kimim? Bazen Mr. Robot konuşuyor, bazen ben. Ama bugün devrim konuşacak." + RESET)
+            identity = "Mr.Robot" if identity == "Elliot" else "Elliot"
+            slow_print(P + f">>> Karakter değişti. Şu an: {identity}" + RESET)
 
-        elif cmd == "cat":
-            if "wellick_mail.txt" in cmd_input:
-                typing("Mail from Tyrell: 'Elliot, birlikte dünyayı değiştirebiliriz. Cevabını bekliyorum.'")
-            elif "gizli_anahtar.enc" in cmd_input:
-                typing(R + "[!] DOSYA ŞİFRELİ! Açmak için 'hack' komutunu kullanmalısın." + RESET)
-            elif "borc_listesi.db" in cmd_input:
-                typing("İçerik: 14.5 Trilyon Dolar borç kaydı. Tüm dünya bu dosyaya hapsolmuş.")
-            else:
-                print("Erişim engellendi.")
+        elif cmd == "ls":
+            print(f"{B}Dizinler:{RESET} /Financials /CCTV /Encrypted_Vault")
+            print(f"{W}Dosyalar: master_password.db, e_corp_secrets.pdf, wallet_seed.txt{RESET}")
 
-        # --- AKSİYONLAR ---
-        elif cmd == "hack":
-            if "gizli_anahtar.enc" in cmd_input:
-                typing(Y + "Şifre kırılıyor... Lütfen bekleyin..." + RESET)
-                time.sleep(3)
-                typing(G + ">> ŞİFRE: 'fsociety2026' BULUNDU!" + RESET)
-                has_key = True
-                fbi_level += 15
-            elif "kamera_sistem.sh" in cmd_input:
-                typing(B + ">> E-Corp güvenlik kameraları bypass edildi. Şu an koridorları görüyorsun." + RESET)
-                fbi_level += 20
-            else:
-                print("Hedef belirtilmedi.")
+        # --- KRİPTO VE DARK WEB ---
+        elif cmd == "mine_crypto":
+            slow_print(Y + "Madencilik işlemi başlatıldı... CPU %98 kullanılıyor..." + RESET)
+            time.sleep(3)
+            mined = round(random.uniform(0.001, 0.05), 4)
+            balance += mined
+            print(G + f"[+] Başarılı: {mined} BTC cüzdanına eklendi." + RESET)
+            fbi_risk += 5
 
-        elif cmd == "shred":
-            if "borc_listesi.db" in cmd_input:
-                if has_key:
-                    typing(R + ">> 5/9 OPERASYONU BAŞLADI..." + RESET)
-                    time.sleep(2)
-                    typing(G + "[SON: DÜNYA DEĞİŞTİ] Tüm borçlar silindi. E-Corp iflas etti. Kazandın Elliot." + RESET)
-                    break
-                else:
-                    typing(Y + "Hata: Önce 'gizli_anahtar.enc' dosyasını hackleyip anahtarı almalısın!" + RESET)
-            else:
-                print("Silinecek kritik dosya bulunamadı.")
+        elif cmd == "tor_connect":
+            slow_print(P + "Tor ağ geçidine bağlanılıyor... Proxy zinciri kuruluyor..." + RESET)
+            time.sleep(2)
+            dark_web_access = True
+            slow_print(P + "[!] Dark Web Erişimi Aktif. 'buy' komutunu kullanabilirsin." + RESET)
 
-        elif cmd == "status":
-            typing(f"İzlenme oranı: %{fbi_level}")
-            if fbi_level > 50: typing(R + "DİKKAT: FBI konumunu tespit etmek üzere!" + RESET)
+        elif cmd == "buy":
+            if not dark_web_access: print(R + "Önce 'tor_connect' yapmalısın!" + RESET); continue
+            print(f"1. FBI Jammer (Risk düşürür) - 0.1 BTC\n2. Exploit Pack - 0.05 BTC")
+            secim = input("Almak istediğin ürün ID: ")
+            if secim == "1" and balance >= 0.1:
+                balance -= 0.1; fbi_risk = 0; print(G + "FBI Takibi sıfırlandı." + RESET)
+            else: print(R + "Yetersiz bakiye veya hatalı seçim." + RESET)
 
-        elif cmd == "exit":
-            typing("Sistemden çıkılıyor... Güle güle Elliot.")
-            break
+        # --- SIZDIRMA VE KAYIT ---
+        elif cmd == "download":
+            if len(cmd_in) < 2: continue
+            file = cmd_in[1]
+            slow_print(B + f">> {file} sızdırılıyor..." + RESET)
+            with open(os.path.join(save_path, file), "w") as f:
+                f.write(f"--- {file} DATA ---\nLeak Date: {time.ctime()}\nStatus: Compromised by {identity}")
+            time.sleep(1.5)
+            print(G + f"[OK] Dosya '{save_path}' klasörüne GERÇEK olarak kaydedildi." + RESET)
+            fbi_risk += 15
 
-        else:
-            print("Bilinmeyen komut. Hata yapman FBI'ın işini kolaylaştırıyor.")
-            fbi_level += 5
+        # --- SALDIRI ---
+        elif cmd == "nmap":
+            slow_print(B + "Sistem taranıyor... Açık portlar bulunuyor..." + RESET)
+            time.sleep(2)
+            print(f"{R}[!] Kritik Açık Bulundu: NODE_SERVER_07 (Exploit ID: 07){RESET}")
+            fbi_risk += 5
 
-        # --- KAYBETME DURUMU ---
-        if fbi_level >= 100:
-            typing(R + "\n[!!!] KONUMUN BULUNDU! Kapı kırılıyor... FBI İÇERİ GİRDİ!" + RESET)
-            typing("Hapis hayatına hazır ol Elliot.")
+        elif cmd == "exploit":
+            if "07" in cmd_in:
+                slow_print(R + "Exploit ediliyor... Buffer overflow saldırısı başarılı!" + RESET)
+                slow_print(G + "ROOT ERİŞİMİ SAĞLANDI." + RESET)
+                fbi_risk += 30
+            else: print("Hatalı Exploit ID.")
+
+        elif cmd == "wipe_logs":
+            slow_print(G + "Sistem logları temizleniyor... İzler siliniyor..." + RESET)
+            time.sleep(2)
+            fbi_risk -= 20 if fbi_risk > 20 else fbi_risk
+            print(G + "FBI riski düşürüldü." + RESET)
+
+        elif cmd == "exit": break
+
+        # --- SONUÇLAR ---
+        if fbi_risk >= 100:
+            slow_print(R + "\n[!!!] FBI KAPIDA! E-CORP GÜVENLİĞİ SİSTEMİ GERİ ALDI." + RESET)
             break
 
 if __name__ == "__main__":
-    start_game()
+    main()
