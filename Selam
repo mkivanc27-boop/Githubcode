@@ -46,19 +46,16 @@ def country(ip):
 # ── Oyun State ──────────────────────────────────────────────────────────
 class SOCState:
     def __init__(self):
-        # Sunucu
         self.capacity       = 800
         self.load           = 0
         self.is_down        = True
         self.uptime_seconds = 0
 
-        # Saldırı
         self.attack_intensity = 1.0
         self.attack_type      = "HTTP_FLOOD"
         self.wave             = 1
         self.total_attacks    = 0
 
-        # Savunmalar
         self.firewall_ips     = set()
         self.cdn              = False
         self.load_balancer    = False
@@ -69,25 +66,21 @@ class SOCState:
         self.rate_limit       = False
         self.ids_active       = False
 
-        # İstatistik
         self.blocked          = 0
         self.passed           = 0
         self.sqli_attempts    = 0
         self.sqli_blocked     = 0
         self.history          = []
 
-        # Olay yönetimi
         self.tickets          = []
         self.reports          = []
         self.isp_called       = False
         self.team_notified    = False
         self.ceo_briefed      = False
 
-        # Log
         self.logs             = deque(maxlen=50)
         self.alerts           = deque(maxlen=10)
 
-        # Puan
         self.score            = 0
         self.actions_taken    = []
 
@@ -108,7 +101,6 @@ def tick(state):
     blocked = 0
     passed  = 0
 
-    # Savunma katmanları (gerçekçi yüzdeleri)
     remaining = bot_raw
     if state.blackhole:   b=int(remaining*0.97); blocked+=b; remaining-=b
     if state.scrubbing:   b=int(remaining*0.88); blocked+=b; remaining-=b
@@ -120,7 +112,6 @@ def tick(state):
         if random.random() < 0.02: b=int(remaining*0.01); blocked+=b; remaining-=b
     passed += remaining
 
-    # SQL Injection
     sqli_blocked = 0
     if state.waf:         sqli_blocked += int(sqli_raw * 0.95)
     elif state.ids_active: sqli_blocked += int(sqli_raw * 0.70)
@@ -128,7 +119,6 @@ def tick(state):
     state.sqli_attempts += sqli_raw
     state.sqli_blocked  += sqli_blocked
 
-    # Meşru trafik
     if state.load_balancer: state.capacity = 3000
     passed += legit
     state.blocked += blocked
@@ -144,7 +134,6 @@ def tick(state):
         state.is_down = False
         state.add_log("INFO", "Sunucu yük normal seviyeye düştü")
 
-    # Log üret
     if random.random() < 0.4:
         ip = fake_bot_ip()
         ua = random.choice(USER_AGENTS)
@@ -188,13 +177,11 @@ def dashboard(state, last_tick=None):
     print(f"{GREEN}║{RESET}  🛡  ŞİRKET SOC — GÜVENLİK OPERASYON MERKEZİ  {DIM}dalga:{state.wave} {now()}{RESET}  {GREEN}║{RESET}")
     print(f"{GREEN}╠{'═'*63}╣{RESET}")
 
-    # Sunucu
     print(f"{GREEN}║{RESET}  SUNUCU: {srv}   YÜK: {load_bar(state.load, state.capacity)}")
     print(f"{GREEN}║{RESET}  GRAFİK: {mini_graph(state.history)}")
     print(f"{GREEN}║{RESET}  Engel:{RED}{state.blocked:>7}{RESET}  Geçti:{YELLOW}{state.passed:>6}{RESET}  SQLi:{RED}{state.sqli_attempts:>5}{RESET}  SQLi Engel:{GREEN}{state.sqli_blocked:>5}{RESET}")
     print(f"{GREEN}╠{'═'*63}╣{RESET}")
 
-    # Savunma katmanları
     print(f"{GREEN}║{RESET}  {CYAN}SAVUNMA KATMANLARI{RESET}")
     row1 = f"  {si(state.cdn)}CDN/CF  {si(state.waf)}WAF  {si(state.rate_limit)}RateLimit  {si(state.captcha)}CAPTCHA  {si(state.ids_active)}IDS"
     row2 = f"  {si(state.load_balancer)}LoadBalancer  {si(state.scrubbing)}Scrubbing  {si(state.blackhole)}Blackhole  {si(len(state.firewall_ips)>0)}Firewall({len(state.firewall_ips)} IP)"
@@ -204,26 +191,22 @@ def dashboard(state, last_tick=None):
     print(f"{GREEN}║{RESET} {row3}")
     print(f"{GREEN}╠{'═'*63}╣{RESET}")
 
-    # Son tick
     if last_tick:
         bot, legit, blocked, passed, sqli, sqli_b = last_tick
         print(f"{GREEN}║{RESET}  {DIM}Son dalga → Bot:{RED}{bot}{RESET} Meşru:{GREEN}{legit}{RESET} Engel:{YELLOW}{blocked}{RESET} Geçti:{RED}{passed}{RESET} SQLi:{RED}{sqli}{RESET}({GREEN}{sqli_b} engel{RESET})")
         print(f"{GREEN}╠{'═'*63}╣{RESET}")
 
-    # Alarmlar
     if state.alerts:
         print(f"{GREEN}║{RESET}  {RED}SON ALARMLAR:{RESET}")
         for a in list(state.alerts)[:3]:
             print(f"{GREEN}║{RESET}  {a}")
         print(f"{GREEN}╠{'═'*63}╣{RESET}")
 
-    # Son loglar
     print(f"{GREEN}║{RESET}  {CYAN}CANLI LOG:{RESET}")
     for log in list(state.logs)[:5]:
         print(f"{GREEN}║{RESET}  {log}")
     print(f"{GREEN}╚{'═'*63}╝{RESET}")
 
-    # Çöküş uyarısı
     if state.is_down:
         print(f"\n  {RED}{'█'*55}")
         print(f"  █  KRİTİK: SERVİS DIŞI! Müşteriler erişemiyor!    █")
@@ -486,24 +469,34 @@ def main():
         cmd = parts[0].lower()
         args = parts[1:]
 
+        # ── Durum güncellemesi gerektirmeyen komutlar
         if cmd == "exit":
             slow("SOC oturumu kapatılıyor...", DIM)
             cmd_report(state)
             break
+        elif cmd == "help":     cmd_help(); continue
+        elif cmd == "logs":     cmd_logs(state, args); continue
+        elif cmd == "tickets":  cmd_tickets(state); continue
+        elif cmd == "score":    cmd_score(state); continue
+        elif cmd == "explain":  cmd_explain(args[0].lower() if args else ""); continue
 
-        elif cmd == "help":      cmd_help(); continue
-        elif cmd == "logs":      cmd_logs(state, args); continue
-        elif cmd == "analyze":   cmd_analyze(state)
-        elif cmd == "report":    cmd_report(state)
-        elif cmd == "tickets":   cmd_tickets(state); continue
-        elif cmd == "score":     cmd_score(state); continue
-        elif cmd == "explain":   cmd_explain(args[0].lower() if args else ""); continue
-
+        # ── Tick tetikleyen komutlar
+        elif cmd == "analyze":
+            cmd_analyze(state)
+        elif cmd == "report":
+            cmd_report(state)
         elif cmd == "ticket":
             cmd_ticket(state, args)
             last_tick = tick(state)
             dashboard(state, last_tick)
             continue
-
         elif cmd == "status":
-            last_tick = tick(sta
+            last_tick = tick(state)
+            dashboard(state, last_tick)
+            continue
+
+        # ── Savunma komutları
+        elif cmd == "cdn":
+            if not state.cdn:
+                state.cdn = True
+                ok("CDN/Cloudflare aktifleş
