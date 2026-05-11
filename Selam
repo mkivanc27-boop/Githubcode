@@ -1,118 +1,276 @@
-import os
+import sqlite3
 import time
 import sys
+import os
 import random
 
-# Renkler (Full Palet)
-G, R, Y, B, C, W = '\033[92m', '\033[91m', '\033[93m', '\033[94m', '\033[96m', '\033[97m'
-P = '\033[95m' # Mor (Dark Web)
-RESET = '\033[0m'
+# ── Renkler ────────────────────────────────────────────────────────────
+GREEN  = "\033[92m"
+DIM    = "\033[90m"
+YELLOW = "\033[93m"
+RED    = "\033[91m"
+CYAN   = "\033[96m"
+WHITE  = "\033[97m"
+RESET  = "\033[0m"
+BOLD   = "\033[1m"
 
-def slow_print(text, speed=0.02):
-    for char in text:
-        sys.stdout.write(char); sys.stdout.flush(); time.sleep(speed)
+# ── Sahte veritabanı (sadece bellekte, gerçek bir sisteme bağlanmıyor) ──
+def setup_db():
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""
+        CREATE TABLE users (
+            id INTEGER, username TEXT, password TEXT,
+            role TEXT, clearance TEXT
+        )
+    """)
+    users = [
+        (1, "admin",  "Tr0j4n.H0rs3!", "root", "TOP SECRET"),
+        (2, "elliot", "mr_r0bot_2015",  "user", "LEVEL 2"),
+        (3, "tyrell", "wellick_ceo",    "exec", "LEVEL 4"),
+        (4, "angela", "ang3la_m0ss",    "user", "LEVEL 1"),
+    ]
+    conn.executemany("INSERT INTO users VALUES (?,?,?,?,?)", users)
+    conn.commit()
+    return conn
+
+# ── Yardımcı fonksiyonlar ───────────────────────────────────────────────
+def clear():
+    os.system("cls" if os.name == "nt" else "clear")
+
+def slow_print(text, color=DIM, delay=0.012):
+    print(color, end="", flush=True)
+    for ch in text:
+        print(ch, end="", flush=True)
+        time.sleep(delay)
+    print(RESET)
+
+def glitch():
+    chars = "!@#$%^&*<>?/\\|~`"
+    line = "".join(random.choice(chars) for _ in range(random.randint(20, 50)))
+    print(f"\033[91m{line}\033[0m")
+    time.sleep(0.06)
+    print("\033[1A\033[2K", end="")  # bir satır sil
+
+# ── Giriş fonksiyonları ────────────────────────────────────────────────
+def vulnerable_login(conn, username, password):
+    # KÖTÜ: string birleştirme — injection açığı var!
+    query = f"SELECT * FROM users WHERE username='{username}' AND password='{password}'"
+    print(f"\n  {DIM}[SQL] {CYAN}{query}{RESET}\n")
+    time.sleep(0.3)
+    try:
+        result = conn.execute(query).fetchone()
+        return result
+    except Exception as e:
+        print(f"  {RED}[SQL HATA] {e}{RESET}")
+        return None
+
+def secure_login(conn, username, password):
+    # İYİ: parameterized query — injection imkansız!
+    query = "SELECT * FROM users WHERE username=? AND password=?"
+    print(f"\n  {DIM}[SQL] {CYAN}{query}{RESET}")
+    print(f"  {DIM}[PARAMS] username={YELLOW}{repr(username)}{DIM}, password=***{RESET}\n")
+    time.sleep(0.3)
+    result = conn.execute(query, (username, password)).fetchone()
+    return result
+
+# ── Komutlar ────────────────────────────────────────────────────────────
+def cmd_help():
+    print(f"""
+{GREEN}KULLANILABILIR KOMUTLAR:{RESET}
+  {CYAN}login <kullanici> <sifre>{DIM}    — giriş dene (güvenlik moduna göre)
+  {CYAN}sqlmap <kullanici>{DIM}           — otomatik injection saldırısı başlat
+  {CYAN}fix{DIM}                          — güvenlik açığını yama
+  {CYAN}unfix{DIM}                        — açığı geri yükle (test için)
+  {CYAN}whoami{DIM}                       — mevcut oturum bilgisi
+  {CYAN}users{DIM}                        — hedef kullanıcıları listele
+  {CYAN}explain{DIM}                      — SQL Injection nasıl çalışır?
+  {CYAN}clear{DIM}                        — terminali temizle
+  {CYAN}exit{DIM}                         — çıkış
+{RESET}""")
+
+def cmd_users():
+    print(f"\n{GREEN}HEDEF KULLANICILAR:{RESET}")
+    users = [
+        (1, "admin",  "root", "TOP SECRET"),
+        (2, "elliot", "user", "LEVEL 2"),
+        (3, "tyrell", "exec", "LEVEL 4"),
+        (4, "angela", "user", "LEVEL 1"),
+    ]
+    for u in users:
+        print(f"  {DIM}[{u[0]}] {WHITE}{u[1]:<12}{DIM} rol:{u[2]:<8} yetki:{u[3]}{RESET}")
+    print()
+
+def cmd_explain():
+    print(f"""
+{GREEN}── SQL INJECTION AÇIKLAMASI ─────────────────────────────────────{RESET}
+
+{DIM}SAVUNMASIZ kod: string birleştirme kullanır{RESET}
+  {CYAN}query = "SELECT * FROM users WHERE username='" + username + "'"
+
+{DIM}Saldırı: username = {YELLOW}admin'--{RESET}
+  {RED}→ SELECT * FROM users WHERE username='admin'--' AND password='...'
+  → '--' sonrası yorum satırı olur, şifre kontrolü devre dışı kalır!
+
+{DIM}GÜVENLİ kod: parameterized query kullanır{RESET}
+  {CYAN}cursor.execute("SELECT * FROM users WHERE username=?", [username])
+  {GREEN}→ Kullanıcı girdisi her zaman VERİ olarak işlenir, SQL KOMUTU olarak değil.{RESET}
+""")
+
+def cmd_whoami(state):
+    if state["user"]:
+        u = state["user"]
+        print(f"""
+  {GREEN}oturum    : AKTİF
+  kullanici : {u[1]}
+  rol       : {u[3]}
+  yetki     : {u[4]}
+  mod       : {"GÜVENLİ (parameterized)" if state["secure"] else "SAVUNMASIZ (injectable)"}{RESET}
+""")
+    else:
+        print(f"  {YELLOW}aktif oturum yok.{RESET}\n")
+
+def cmd_login(conn, args, state):
+    if len(args) < 2:
+        print(f"  {YELLOW}kullanım: login <kullanici> <sifre>{RESET}\n")
+        return
+    username = args[0]
+    password = " ".join(args[1:])
+    fn = secure_login if state["secure"] else vulnerable_login
+    result = fn(conn, username, password)
+
+    if result:
+        state["user"] = result
+        glitch()
+        print(f"  {GREEN}{'█'*44}")
+        print(f"  █  ERİŞİM SAĞLANDI                         █")
+        print(f"  █  kullanici : {result[1]:<28}█")
+        print(f"  █  rol       : {result[3]:<28}█")
+        print(f"  █  yetki     : {result[4]:<28}█")
+        print(f"  {'█'*44}{RESET}\n")
+        if not state["secure"] and "'" in username:
+            print(f"  {RED}[!] SQL INJECTION ile giriş yapıldı! Şifre kontrol edilmedi.{RESET}")
+            print(f"  {DIM}    'fix' komutu ile açığı kapatabilirsin.{RESET}\n")
+    else:
+        print(f"  {RED}[✗] ERİŞİM REDDEDİLDİ — hatalı kullanıcı adı veya şifre{RESET}\n")
+
+def cmd_sqlmap(conn, args, state):
+    target = args[0] if args else "admin"
+    payloads = [
+        (f"admin'--",       "x"),
+        (f"' OR '1'='1",   "herhangi"),
+        (f"' OR 1=1--",    ""),
+        (f"' OR 'x'='x",  "x"),
+        (f"admin' #",      ""),
+    ]
+    print(f"\n  {GREEN}[sqlmap] hedef: {target} | mod: {'GÜVENLİ' if state['secure'] else 'SAVUNMASIZ'}{RESET}")
+    print(f"  {DIM}{'─'*50}{RESET}\n")
+    time.sleep(0.4)
+
+    found = False
+    for uname, pwd in payloads:
+        time.sleep(0.35)
+        if state["secure"]:
+            result = secure_login(conn, uname, pwd)
+        else:
+            result = vulnerable_login(conn, uname, pwd)
+
+        status = f"{RED}AÇIK BULUNDU ✓{RESET}" if result else f"{DIM}engellendi{RESET}"
+        print(f"  {DIM}{uname:<35}{RESET} → {status}")
+
+        if result and not state["secure"]:
+            found = True
+            print(f"\n  {RED}[!] INJECTION BAŞARILI!")
+            print(f"  [!] kullanici: {result[1]}  yetki: {result[4]}{RESET}")
+            state["user"] = result
+            break
+
+    print()
+    if not found:
+        if state["secure"]:
+            print(f"  {GREEN}[✓] tüm payload'lar engellendi. sistem güvende.{RESET}\n")
+        else:
+            print(f"  {YELLOW}[?] otomatik bulunamadı. 'login' ile manuel dene.{RESET}\n")
+
+# ── Ana döngü ───────────────────────────────────────────────────────────
+def boot():
+    clear()
+    lines = [
+        ("fsociety_os v2.3.1 — kernel 4.19.0-fsoc", GREEN, 0.015),
+        ("initializing secure shell...", DIM, 0.012),
+        ("loading modules: [net] [crypto] [sql_engine] [exploit_db]", DIM, 0.010),
+        ("mounting /dev/sda1 ... OK", DIM, 0.010),
+        ("checking system integrity ... BYPASSED", YELLOW, 0.010),
+        ("firewall status: DISABLED (manual override)", YELLOW, 0.010),
+        ("target acquired: E_CORP INTERNAL AUTH SYSTEM", RED, 0.015),
+        ("WARNING: bu bir eğitim sandbox'ıdır.", DIM, 0.010),
+        ("─" * 54, DIM, 0.005),
+        ("'help' yazarak komutları görebilirsin.", DIM, 0.012),
+    ]
+    print()
+    art = r"""
+  ███████╗███████╗ ██████╗  ██████╗██╗███████╗████████╗██╗   ██╗
+  ██╔════╝██╔════╝██╔═══██╗██╔════╝██║██╔════╝╚══██╔══╝╚██╗ ██╔╝
+  █████╗  ███████╗██║   ██║██║     ██║█████╗     ██║    ╚████╔╝
+  ██╔══╝  ╚════██║██║   ██║██║     ██║██╔══╝     ██║     ╚██╔╝
+  ██║     ███████║╚██████╔╝╚██████╗██║███████╗   ██║      ██║
+  ╚═╝     ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚══════╝   ╚═╝      ╚═╝
+          SQL INJECTION EĞİTİM TERMİNALİ
+"""
+    print(f"{GREEN}{art}{RESET}")
+    for text, color, spd in lines:
+        slow_print(text, color, spd)
     print()
 
 def main():
-    os.system('cls' if os.name == 'nt' else 'clear')
-    save_path = "Hacked_Data"
-    if not os.path.exists(save_path): os.makedirs(save_path)
-
-    # Değişkenler
-    fbi_risk = 0
-    balance = 0
-    identity = "Elliot"
-    inventory = []
-    dark_web_access = False
+    boot()
+    conn = setup_db()
+    state = {"secure": False, "user": None}
 
     while True:
-        # Gelişmiş HUD
-        risk_bar = "█" * (fbi_risk // 10) + "░" * (10 - (fbi_risk // 10))
-        print(f"\n{W}{'='*60}{RESET}")
-        print(f"{C}KİMLİK: {identity} | BİYE: {balance} BTC | FBI RİSK: [{risk_bar}] %{fbi_risk}{RESET}")
-        print(f"{W}{'='*60}{RESET}")
-        
-        prompt = f"{R if identity == 'Mr.Robot' else G}{identity.lower()}@fsociety{RESET}:{B}~#{RESET} "
-        cmd_in = input(prompt).strip().lower().split()
-        if not cmd_in: continue
-        cmd = cmd_in[0]
-
-        # --- KOMUTLAR ---
-        if cmd == "help":
-            print(f"{Y}TEMEL:{RESET} ls, whoami, clear, status, exit")
-            print(f"{Y}SALDIRI:{RESET} nmap, exploit [id], bruteforce [dosya], encrypt [dosya]")
-            print(f"{Y}SIZDIRMA:{RESET} download [dosya], upload [dosya]")
-            print(f"{Y}DARK WEB:{RESET} tor_connect, buy [item], mine_crypto")
-            print(f"{Y}SAVUNMA:{RESET} wipe_logs, ghost_mode, patch [id]")
-
-        elif cmd == "whoami":
-            identity = "Mr.Robot" if identity == "Elliot" else "Elliot"
-            slow_print(P + f">>> Karakter değişti. Şu an: {identity}" + RESET)
-
-        elif cmd == "ls":
-            print(f"{B}Dizinler:{RESET} /Financials /CCTV /Encrypted_Vault")
-            print(f"{W}Dosyalar: master_password.db, e_corp_secrets.pdf, wallet_seed.txt{RESET}")
-
-        # --- KRİPTO VE DARK WEB ---
-        elif cmd == "mine_crypto":
-            slow_print(Y + "Madencilik işlemi başlatıldı... CPU %98 kullanılıyor..." + RESET)
-            time.sleep(3)
-            mined = round(random.uniform(0.001, 0.05), 4)
-            balance += mined
-            print(G + f"[+] Başarılı: {mined} BTC cüzdanına eklendi." + RESET)
-            fbi_risk += 5
-
-        elif cmd == "tor_connect":
-            slow_print(P + "Tor ağ geçidine bağlanılıyor... Proxy zinciri kuruluyor..." + RESET)
-            time.sleep(2)
-            dark_web_access = True
-            slow_print(P + "[!] Dark Web Erişimi Aktif. 'buy' komutunu kullanabilirsin." + RESET)
-
-        elif cmd == "buy":
-            if not dark_web_access: print(R + "Önce 'tor_connect' yapmalısın!" + RESET); continue
-            print(f"1. FBI Jammer (Risk düşürür) - 0.1 BTC\n2. Exploit Pack - 0.05 BTC")
-            secim = input("Almak istediğin ürün ID: ")
-            if secim == "1" and balance >= 0.1:
-                balance -= 0.1; fbi_risk = 0; print(G + "FBI Takibi sıfırlandı." + RESET)
-            else: print(R + "Yetersiz bakiye veya hatalı seçim." + RESET)
-
-        # --- SIZDIRMA VE KAYIT ---
-        elif cmd == "download":
-            if len(cmd_in) < 2: continue
-            file = cmd_in[1]
-            slow_print(B + f">> {file} sızdırılıyor..." + RESET)
-            with open(os.path.join(save_path, file), "w") as f:
-                f.write(f"--- {file} DATA ---\nLeak Date: {time.ctime()}\nStatus: Compromised by {identity}")
-            time.sleep(1.5)
-            print(G + f"[OK] Dosya '{save_path}' klasörüne GERÇEK olarak kaydedildi." + RESET)
-            fbi_risk += 15
-
-        # --- SALDIRI ---
-        elif cmd == "nmap":
-            slow_print(B + "Sistem taranıyor... Açık portlar bulunuyor..." + RESET)
-            time.sleep(2)
-            print(f"{R}[!] Kritik Açık Bulundu: NODE_SERVER_07 (Exploit ID: 07){RESET}")
-            fbi_risk += 5
-
-        elif cmd == "exploit":
-            if "07" in cmd_in:
-                slow_print(R + "Exploit ediliyor... Buffer overflow saldırısı başarılı!" + RESET)
-                slow_print(G + "ROOT ERİŞİMİ SAĞLANDI." + RESET)
-                fbi_risk += 30
-            else: print("Hatalı Exploit ID.")
-
-        elif cmd == "wipe_logs":
-            slow_print(G + "Sistem logları temizleniyor... İzler siliniyor..." + RESET)
-            time.sleep(2)
-            fbi_risk -= 20 if fbi_risk > 20 else fbi_risk
-            print(G + "FBI riski düşürüldü." + RESET)
-
-        elif cmd == "exit": break
-
-        # --- SONUÇLAR ---
-        if fbi_risk >= 100:
-            slow_print(R + "\n[!!!] FBI KAPIDA! E-CORP GÜVENLİĞİ SİSTEMİ GERİ ALDI." + RESET)
+        mode_label = f"{GREEN}[GÜVENLİ]{RESET}" if state["secure"] else f"{RED}[SAVUNMASIZ]{RESET}"
+        try:
+            raw = input(f"{GREEN}elliot@fsociety{RESET}{mode_label}{GREEN}:~${RESET} ")
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n{DIM}Çıkılıyor...{RESET}")
             break
+
+        parts = raw.strip().split()
+        if not parts:
+            continue
+        cmd = parts[0].lower()
+        args = parts[1:]
+
+        if cmd == "exit":
+            slow_print("bağlantı kesiliyor...", DIM)
+            time.sleep(0.5)
+            break
+        elif cmd == "clear":
+            clear()
+        elif cmd == "help":
+            cmd_help()
+        elif cmd == "users":
+            cmd_users()
+        elif cmd == "explain":
+            cmd_explain()
+        elif cmd == "whoami":
+            cmd_whoami(state)
+        elif cmd == "login":
+            cmd_login(conn, args, state)
+        elif cmd == "sqlmap":
+            cmd_sqlmap(conn, args, state)
+        elif cmd == "fix":
+            state["secure"] = True
+            slow_print("string concatenation → parameterized query ile değiştiriliyor...", DIM)
+            time.sleep(0.5)
+            slow_print("[✓] yama uygulandı. sistem artık GÜVENLİ.", GREEN)
+            print(f"  {DIM}doğrulamak için: sqlmap admin{RESET}\n")
+        elif cmd == "unfix":
+            state["secure"] = False
+            state["user"] = None
+            slow_print("[!] savunmasız koda geri dönüldü.", YELLOW)
+            print()
+        else:
+            print(f"  {DIM}komut bulunamadı: {cmd}  ('help' ile komutları gör){RESET}\n")
 
 if __name__ == "__main__":
     main()
