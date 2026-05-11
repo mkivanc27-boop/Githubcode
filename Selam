@@ -1,276 +1,391 @@
-import sqlite3
 import time
-import sys
-import os
 import random
+import os
+import sys
+import threading
+from collections import defaultdict, deque
+from datetime import datetime
 
 # ── Renkler ────────────────────────────────────────────────────────────
-GREEN  = "\033[92m"
-DIM    = "\033[90m"
-YELLOW = "\033[93m"
 RED    = "\033[91m"
+GREEN  = "\033[92m"
+YELLOW = "\033[93m"
 CYAN   = "\033[96m"
 WHITE  = "\033[97m"
-RESET  = "\033[0m"
+DIM    = "\033[90m"
 BOLD   = "\033[1m"
+BLINK  = "\033[5m"
+RESET  = "\033[0m"
 
-# ── Sahte veritabanı (sadece bellekte, gerçek bir sisteme bağlanmıyor) ──
-def setup_db():
-    conn = sqlite3.connect(":memory:")
-    conn.execute("""
-        CREATE TABLE users (
-            id INTEGER, username TEXT, password TEXT,
-            role TEXT, clearance TEXT
-        )
-    """)
-    users = [
-        (1, "admin",  "Tr0j4n.H0rs3!", "root", "TOP SECRET"),
-        (2, "elliot", "mr_r0bot_2015",  "user", "LEVEL 2"),
-        (3, "tyrell", "wellick_ceo",    "exec", "LEVEL 4"),
-        (4, "angela", "ang3la_m0ss",    "user", "LEVEL 1"),
-    ]
-    conn.executemany("INSERT INTO users VALUES (?,?,?,?,?)", users)
-    conn.commit()
-    return conn
+def clear(): os.system("cls" if os.name == "nt" else "clear")
+def now(): return datetime.now().strftime("%H:%M:%S")
 
-# ── Yardımcı fonksiyonlar ───────────────────────────────────────────────
-def clear():
-    os.system("cls" if os.name == "nt" else "clear")
-
-def slow_print(text, color=DIM, delay=0.012):
+def slow_print(text, color=DIM, delay=0.013):
     print(color, end="", flush=True)
     for ch in text:
         print(ch, end="", flush=True)
         time.sleep(delay)
     print(RESET)
 
-def glitch():
-    chars = "!@#$%^&*<>?/\\|~`"
-    line = "".join(random.choice(chars) for _ in range(random.randint(20, 50)))
-    print(f"\033[91m{line}\033[0m")
-    time.sleep(0.06)
-    print("\033[1A\033[2K", end="")  # bir satır sil
+# ── Simülasyon State ────────────────────────────────────────────────────
+class ServerState:
+    def __init__(self):
+        self.max_capacity   = 1000   # saniyede max istek
+        self.current_load   = 0
+        self.is_down        = False
+        self.firewall_rules = []     # engellenen IP'ler
+        self.rate_limits    = {}     # IP -> limit
+        self.cdn_active     = False
+        self.load_balancer  = False
+        self.captcha_active = False
+        self.blackhole      = False
+        self.scrubbing      = False
+        self.blocked_count  = 0
+        self.passed_count   = 0
+        self.attack_log     = deque(maxlen=20)
+        self.defense_log    = deque(maxlen=20)
+        self.traffic_history = []
 
-# ── Giriş fonksiyonları ────────────────────────────────────────────────
-def vulnerable_login(conn, username, password):
-    # KÖTÜ: string birleştirme — injection açığı var!
-    query = f"SELECT * FROM users WHERE username='{username}' AND password='{password}'"
-    print(f"\n  {DIM}[SQL] {CYAN}{query}{RESET}\n")
-    time.sleep(0.3)
-    try:
-        result = conn.execute(query).fetchone()
-        return result
-    except Exception as e:
-        print(f"  {RED}[SQL HATA] {e}{RESET}")
-        return None
+# ── Sahte IP üreteci ────────────────────────────────────────────────────
+BOTNET_RANGES = [
+    "185.220.{}.{}", "45.133.{}.{}", "194.165.{}.{}",
+    "91.108.{}.{}",  "103.75.{}.{}",  "198.54.{}.{}",
+]
+NORMAL_RANGES = [
+    "78.160.{}.{}", "88.247.{}.{}", "5.26.{}.{}",
+]
 
-def secure_login(conn, username, password):
-    # İYİ: parameterized query — injection imkansız!
-    query = "SELECT * FROM users WHERE username=? AND password=?"
-    print(f"\n  {DIM}[SQL] {CYAN}{query}{RESET}")
-    print(f"  {DIM}[PARAMS] username={YELLOW}{repr(username)}{DIM}, password=***{RESET}\n")
-    time.sleep(0.3)
-    result = conn.execute(query, (username, password)).fetchone()
+def fake_ip(botnet=True):
+    tpl = random.choice(BOTNET_RANGES if botnet else NORMAL_RANGES)
+    return tpl.format(random.randint(1,254), random.randint(1,254))
+
+def fake_request():
+    paths = ["/", "/login", "/api/data", "/search", "/checkout", "/static/js/app.js"]
+    return random.choice(paths)
+
+# ── Saldırı simülatörü ──────────────────────────────────────────────────
+def simulate_attack(state, intensity=1.0):
+    """Her 'tick'te saldırı trafiği üret"""
+    bot_count   = int(random.randint(200, 400) * intensity)
+    legit_count = random.randint(30, 80)
+
+    blocked = 0
+    passed  = 0
+
+    for _ in range(bot_count):
+        ip  = fake_ip(botnet=True)
+        req = fake_request()
+
+        # Savunma mekanizmaları
+        if ip in state.firewall_rules:
+            blocked += 1
+            continue
+        if state.blackhole:
+            blocked += int(bot_count * 0.95)
+            passed  += int(bot_count * 0.05)
+            break
+        if state.scrubbing:
+            blocked += int(bot_count * 0.85)
+            passed  += int(bot_count * 0.15)
+            break
+        if state.cdn_active and random.random() < 0.6:
+            blocked += 1
+            continue
+        if state.captcha_active and random.random() < 0.80:
+            blocked += 1
+            continue
+        passed += 1
+
+    for _ in range(legit_count):
+        if state.load_balancer or state.cdn_active:
+            passed += 1
+        else:
+            passed += 1
+
+    state.blocked_count += blocked
+    state.passed_count  += passed
+
+    load = min(passed, state.max_capacity + 500)
+    state.current_load = load
+
+    if load > state.max_capacity and not state.is_down:
+        state.is_down = True
+
+    state.traffic_history.append(load)
+    if len(state.traffic_history) > 30:
+        state.traffic_history.pop(0)
+
+    return bot_count, legit_count, blocked, passed
+
+# ── Görsel yardımcılar ──────────────────────────────────────────────────
+def load_bar(load, capacity):
+    pct = min(load / capacity, 1.5)
+    filled = int(pct * 30)
+    bar = "█" * min(filled, 30) + "░" * max(0, 30 - filled)
+    if pct > 1.0:
+        color = RED
+    elif pct > 0.75:
+        color = YELLOW
+    else:
+        color = GREEN
+    return f"{color}[{bar}]{RESET} {load}/{capacity} req/s"
+
+def mini_graph(history):
+    if not history: return ""
+    mx = max(history) if max(history) > 0 else 1
+    bars = " ▁▂▃▄▅▆▇█"
+    result = ""
+    for v in history[-20:]:
+        idx = min(int((v / mx) * 8), 8)
+        color = RED if v > 1000 else YELLOW if v > 700 else GREEN
+        result += f"{color}{bars[idx]}{RESET}"
     return result
 
-# ── Komutlar ────────────────────────────────────────────────────────────
-def cmd_help():
-    print(f"""
-{GREEN}KULLANILABILIR KOMUTLAR:{RESET}
-  {CYAN}login <kullanici> <sifre>{DIM}    — giriş dene (güvenlik moduna göre)
-  {CYAN}sqlmap <kullanici>{DIM}           — otomatik injection saldırısı başlat
-  {CYAN}fix{DIM}                          — güvenlik açığını yama
-  {CYAN}unfix{DIM}                        — açığı geri yükle (test için)
-  {CYAN}whoami{DIM}                       — mevcut oturum bilgisi
-  {CYAN}users{DIM}                        — hedef kullanıcıları listele
-  {CYAN}explain{DIM}                      — SQL Injection nasıl çalışır?
-  {CYAN}clear{DIM}                        — terminali temizle
-  {CYAN}exit{DIM}                         — çıkış
-{RESET}""")
+def status_icon(active):
+    return f"{GREEN}[AKTİF]{RESET}" if active else f"{DIM}[PASİF]{RESET}"
 
-def cmd_users():
-    print(f"\n{GREEN}HEDEF KULLANICILAR:{RESET}")
-    users = [
-        (1, "admin",  "root", "TOP SECRET"),
-        (2, "elliot", "user", "LEVEL 2"),
-        (3, "tyrell", "exec", "LEVEL 4"),
-        (4, "angela", "user", "LEVEL 1"),
-    ]
-    for u in users:
-        print(f"  {DIM}[{u[0]}] {WHITE}{u[1]:<12}{DIM} rol:{u[2]:<8} yetki:{u[3]}{RESET}")
-    print()
-
-def cmd_explain():
-    print(f"""
-{GREEN}── SQL INJECTION AÇIKLAMASI ─────────────────────────────────────{RESET}
-
-{DIM}SAVUNMASIZ kod: string birleştirme kullanır{RESET}
-  {CYAN}query = "SELECT * FROM users WHERE username='" + username + "'"
-
-{DIM}Saldırı: username = {YELLOW}admin'--{RESET}
-  {RED}→ SELECT * FROM users WHERE username='admin'--' AND password='...'
-  → '--' sonrası yorum satırı olur, şifre kontrolü devre dışı kalır!
-
-{DIM}GÜVENLİ kod: parameterized query kullanır{RESET}
-  {CYAN}cursor.execute("SELECT * FROM users WHERE username=?", [username])
-  {GREEN}→ Kullanıcı girdisi her zaman VERİ olarak işlenir, SQL KOMUTU olarak değil.{RESET}
-""")
-
-def cmd_whoami(state):
-    if state["user"]:
-        u = state["user"]
-        print(f"""
-  {GREEN}oturum    : AKTİF
-  kullanici : {u[1]}
-  rol       : {u[3]}
-  yetki     : {u[4]}
-  mod       : {"GÜVENLİ (parameterized)" if state["secure"] else "SAVUNMASIZ (injectable)"}{RESET}
-""")
-    else:
-        print(f"  {YELLOW}aktif oturum yok.{RESET}\n")
-
-def cmd_login(conn, args, state):
-    if len(args) < 2:
-        print(f"  {YELLOW}kullanım: login <kullanici> <sifre>{RESET}\n")
-        return
-    username = args[0]
-    password = " ".join(args[1:])
-    fn = secure_login if state["secure"] else vulnerable_login
-    result = fn(conn, username, password)
-
-    if result:
-        state["user"] = result
-        glitch()
-        print(f"  {GREEN}{'█'*44}")
-        print(f"  █  ERİŞİM SAĞLANDI                         █")
-        print(f"  █  kullanici : {result[1]:<28}█")
-        print(f"  █  rol       : {result[3]:<28}█")
-        print(f"  █  yetki     : {result[4]:<28}█")
-        print(f"  {'█'*44}{RESET}\n")
-        if not state["secure"] and "'" in username:
-            print(f"  {RED}[!] SQL INJECTION ile giriş yapıldı! Şifre kontrol edilmedi.{RESET}")
-            print(f"  {DIM}    'fix' komutu ile açığı kapatabilirsin.{RESET}\n")
-    else:
-        print(f"  {RED}[✗] ERİŞİM REDDEDİLDİ — hatalı kullanıcı adı veya şifre{RESET}\n")
-
-def cmd_sqlmap(conn, args, state):
-    target = args[0] if args else "admin"
-    payloads = [
-        (f"admin'--",       "x"),
-        (f"' OR '1'='1",   "herhangi"),
-        (f"' OR 1=1--",    ""),
-        (f"' OR 'x'='x",  "x"),
-        (f"admin' #",      ""),
-    ]
-    print(f"\n  {GREEN}[sqlmap] hedef: {target} | mod: {'GÜVENLİ' if state['secure'] else 'SAVUNMASIZ'}{RESET}")
-    print(f"  {DIM}{'─'*50}{RESET}\n")
-    time.sleep(0.4)
-
-    found = False
-    for uname, pwd in payloads:
-        time.sleep(0.35)
-        if state["secure"]:
-            result = secure_login(conn, uname, pwd)
-        else:
-            result = vulnerable_login(conn, uname, pwd)
-
-        status = f"{RED}AÇIK BULUNDU ✓{RESET}" if result else f"{DIM}engellendi{RESET}"
-        print(f"  {DIM}{uname:<35}{RESET} → {status}")
-
-        if result and not state["secure"]:
-            found = True
-            print(f"\n  {RED}[!] INJECTION BAŞARILI!")
-            print(f"  [!] kullanici: {result[1]}  yetki: {result[4]}{RESET}")
-            state["user"] = result
-            break
-
-    print()
-    if not found:
-        if state["secure"]:
-            print(f"  {GREEN}[✓] tüm payload'lar engellendi. sistem güvende.{RESET}\n")
-        else:
-            print(f"  {YELLOW}[?] otomatik bulunamadı. 'login' ile manuel dene.{RESET}\n")
-
-# ── Ana döngü ───────────────────────────────────────────────────────────
-def boot():
+def print_dashboard(state, attack_info=None):
     clear()
-    lines = [
-        ("fsociety_os v2.3.1 — kernel 4.19.0-fsoc", GREEN, 0.015),
-        ("initializing secure shell...", DIM, 0.012),
-        ("loading modules: [net] [crypto] [sql_engine] [exploit_db]", DIM, 0.010),
-        ("mounting /dev/sda1 ... OK", DIM, 0.010),
-        ("checking system integrity ... BYPASSED", YELLOW, 0.010),
-        ("firewall status: DISABLED (manual override)", YELLOW, 0.010),
-        ("target acquired: E_CORP INTERNAL AUTH SYSTEM", RED, 0.015),
-        ("WARNING: bu bir eğitim sandbox'ıdır.", DIM, 0.010),
-        ("─" * 54, DIM, 0.005),
-        ("'help' yazarak komutları görebilirsin.", DIM, 0.012),
-    ]
+    print(f"{GREEN}{'═'*65}{RESET}")
+    print(f"{GREEN}  🛡  ŞİRKET GÜVENLİK OPERASYON MERKEZİ (SOC)         {now()}{RESET}")
+    print(f"{GREEN}{'═'*65}{RESET}")
+
+    # Sunucu durumu
+    server_status = f"{RED}{BLINK}⚠ ÇÖKTÜ{RESET}" if state.is_down else f"{GREEN}✓ ÇALIŞIYOR{RESET}"
+    print(f"\n  Sunucu Durumu   : {server_status}")
+    print(f"  Yük             : {load_bar(state.current_load, state.max_capacity)}")
+    print(f"  Trafik Grafiği  : {mini_graph(state.traffic_history)}")
+    print(f"  Engellenen      : {RED}{state.blocked_count}{RESET}  |  Geçen: {GREEN}{state.passed_count}{RESET}\n")
+
+    # Savunma katmanları
+    print(f"  {CYAN}── SAVUNMA KATMANLARI ──────────────────────────────{RESET}")
+    print(f"  [1] Firewall IP Block   {status_icon(len(state.firewall_rules)>0)}  ({len(state.firewall_rules)} IP engelli)")
+    print(f"  [2] Rate Limiting       {status_icon(bool(state.rate_limits))}")
+    print(f"  [3] CDN / Cloudflare    {status_icon(state.cdn_active)}")
+    print(f"  [4] Load Balancer       {status_icon(state.load_balancer)}")
+    print(f"  [5] CAPTCHA             {status_icon(state.captcha_active)}")
+    print(f"  [6] BGP Blackhole       {status_icon(state.blackhole)}")
+    print(f"  [7] Traffic Scrubbing   {status_icon(state.scrubbing)}")
+
+    # Son saldırı logu
+    if attack_info:
+        bot, legit, blocked, passed = attack_info
+        print(f"\n  {CYAN}── SON SALDIRI TİCKI ───────────────────────────────{RESET}")
+        print(f"  Bot isteği: {RED}{bot}{RESET}  |  Meşru: {GREEN}{legit}{RESET}  |  Engel: {YELLOW}{blocked}{RESET}  |  Geçti: {RED}{passed}{RESET}")
+
+    print(f"\n  {CYAN}── KOMUTLAR ─────────────────────────────────────────{RESET}")
+    print(f"  {DIM}firewall <IP>  ratelimit  cdn  loadbalancer  captcha  blackhole  scrubbing  status  next  help  exit{RESET}")
+
+    if state.is_down:
+        print(f"\n  {RED}{'█'*55}")
+        print(f"  █  KRİTİK: SUNUCU ÇÖKTÜ! SERVİS DIŞI!              █")
+        print(f"  █  Savunma katmanlarını aktifleştir!                 █")
+        print(f"  {'█'*55}{RESET}")
     print()
+
+# ── Boot & Senaryo ──────────────────────────────────────────────────────
+def boot_sequence():
+    clear()
     art = r"""
-  ███████╗███████╗ ██████╗  ██████╗██╗███████╗████████╗██╗   ██╗
-  ██╔════╝██╔════╝██╔═══██╗██╔════╝██║██╔════╝╚══██╔══╝╚██╗ ██╔╝
-  █████╗  ███████╗██║   ██║██║     ██║█████╗     ██║    ╚████╔╝
-  ██╔══╝  ╚════██║██║   ██║██║     ██║██╔══╝     ██║     ╚██╔╝
-  ██║     ███████║╚██████╔╝╚██████╗██║███████╗   ██║      ██║
-  ╚═╝     ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚══════╝   ╚═╝      ╚═╝
-          SQL INJECTION EĞİTİM TERMİNALİ
+   _____ ____  ____
+  / ___// __ \/ ___/
+  \__ \/ / / / /
+ ___/ / /_/ / /___
+/____/\____/\____/   Security Operations Center
 """
     print(f"{GREEN}{art}{RESET}")
-    for text, color, spd in lines:
-        slow_print(text, color, spd)
-    print()
+    time.sleep(0.3)
 
+    scenario = [
+        ("ALARM: Anormal trafik tespit edildi...", RED,    0.018),
+        ("ALARM: Saniyede 8.400 istek — normal: 200",    RED,    0.015),
+        ("ALARM: 47 farklı ülkeden koordineli saldırı!", RED,    0.015),
+        ("ALARM: SUNUCU KAPASITESI AŞILDI — SERVİS DIŞI",RED,   0.018),
+        ("",                                              DIM,    0),
+        ("SOC ekibi devreye girdi. Sen komuta geçiyorsun.", CYAN, 0.015),
+        ("Görevi: Saldırıyı durdur, sistemi koru, servisi geri getir.", DIM, 0.013),
+        ("",                                              DIM,    0),
+        ("'help' ile başla.",                             GREEN,  0.015),
+    ]
+    for text, color, spd in scenario:
+        if text:
+            slow_print(text, color, spd)
+        else:
+            print()
+        time.sleep(0.1)
+    time.sleep(1)
+
+# ── Yardım ──────────────────────────────────────────────────────────────
+def print_help():
+    print(f"""
+{GREEN}SAVUNMA KOMUTLARI:{RESET}
+  {CYAN}firewall <IP>{DIM}    — belirtilen IP'yi engelle (örn: firewall 185.220.101.5)
+  {CYAN}firewall auto{DIM}    — bilinen botnet IP aralıklarını otomatik engelle
+  {CYAN}ratelimit{DIM}        — IP başına istek sınırı koy
+  {CYAN}cdn{DIM}              — Cloudflare CDN'i aktifleştir (trafiği filtrele/dağıt)
+  {CYAN}loadbalancer{DIM}     — yük dengeleyici aç (kapasiteyi artır)
+  {CYAN}captcha{DIM}          — bot filtresi için CAPTCHA zorla
+  {CYAN}blackhole{DIM}        — BGP blackhole routing (trafiği yut, en agresif)
+  {CYAN}scrubbing{DIM}        — scrubbing center'a yönlendir (temizlenmiş trafik)
+
+{GREEN}BİLGİ KOMUTLARI:{RESET}
+  {CYAN}status{DIM}           — mevcut durum paneli
+  {CYAN}next{DIM}             — bir sonraki saldırı dalgasını simüle et
+  {CYAN}explain <konu>{DIM}   — detaylı açıklama (ddos / cdn / blackhole / scrubbing)
+  {CYAN}exit{DIM}             — çıkış
+
+{YELLOW}İPUCU:{RESET} Sunucu çöktüyse önce 'cdn' + 'scrubbing' dene, sonra 'loadbalancer'.
+""")
+
+def print_explain(topic):
+    topics = {
+        "ddos": f"""
+{GREEN}── DDoS NEDİR? ──────────────────────────────────────{RESET}
+{DIM}Distributed Denial of Service: binlerce farklı IP'den
+eş zamanlı istek yağmuru yaparak sunucuyu meşgul etmek
+ve gerçek kullanıcıların erişimini engellemek.
+
+Saldırı türleri:
+  Volumetric  — ham bant genişliği taşması (Gbps)
+  Protocol    — TCP SYN flood, sunucu kaynaklarını tüketir
+  Application — HTTP flood, uygulama katmanını hedefler (L7){RESET}
+""",
+        "cdn": f"""
+{GREEN}── CDN / CLOUDFLARE ─────────────────────────────────{RESET}
+{DIM}Content Delivery Network: trafiği dünyadaki veri
+merkezlerine dağıtır. DDoS saldırısı asıl sunucuna
+değil CDN'e çarpar. CDN bot trafiğini filtreler,
+meşru trafiği geçirir. En yaygın çözüm.{RESET}
+""",
+        "blackhole": f"""
+{GREEN}── BGP BLACKHOLE ────────────────────────────────────{RESET}
+{DIM}Saldırı altındaki IP'ye giden tüm trafik "null route"
+yani boşluğa yönlendirilir. Saldırı durur ama meşru
+kullanıcılar da o IP'ye erişemez. Son çare yöntemi.
+ISP ile koordineli yapılır.{RESET}
+""",
+        "scrubbing": f"""
+{GREEN}── TRAFFIC SCRUBBING ────────────────────────────────{RESET}
+{DIM}Trafik önce scrubbing center'a yönlendirilir.
+Burada bot trafiği ile meşru trafik ayırt edilir.
+Temizlenmiş (scrubbed) trafik asıl sunucuya iletilir.
+Akamai, Arbor, Radware gibi firmalar bu hizmeti sunar.{RESET}
+""",
+    }
+    print(topics.get(topic, f"  {YELLOW}Konu bulunamadı. Deneyebilirsin: ddos, cdn, blackhole, scrubbing{RESET}\n"))
+
+# ── Ana döngü ───────────────────────────────────────────────────────────
 def main():
-    boot()
-    conn = setup_db()
-    state = {"secure": False, "user": None}
+    boot_sequence()
+    state = ServerState()
+    state.is_down = True
+    state.current_load = 1400  # başlangıçta çökmüş
+    state.traffic_history = [random.randint(800, 1400) for _ in range(15)]
+
+    attack_info = None
+    intensity = 1.0
+
+    print_dashboard(state, attack_info)
 
     while True:
-        mode_label = f"{GREEN}[GÜVENLİ]{RESET}" if state["secure"] else f"{RED}[SAVUNMASIZ]{RESET}"
         try:
-            raw = input(f"{GREEN}elliot@fsociety{RESET}{mode_label}{GREEN}:~${RESET} ")
+            raw = input(f"{GREEN}soc@defense:~${RESET} ").strip()
         except (EOFError, KeyboardInterrupt):
             print(f"\n{DIM}Çıkılıyor...{RESET}")
             break
 
-        parts = raw.strip().split()
-        if not parts:
+        if not raw:
             continue
-        cmd = parts[0].lower()
-        args = parts[1:]
+
+        parts = raw.split()
+        cmd   = parts[0].lower()
+        args  = parts[1:]
 
         if cmd == "exit":
-            slow_print("bağlantı kesiliyor...", DIM)
-            time.sleep(0.5)
+            slow_print("SOC oturumu kapatılıyor...", DIM)
             break
-        elif cmd == "clear":
-            clear()
+
         elif cmd == "help":
-            cmd_help()
-        elif cmd == "users":
-            cmd_users()
+            print_help()
+            continue
+
         elif cmd == "explain":
-            cmd_explain()
-        elif cmd == "whoami":
-            cmd_whoami(state)
-        elif cmd == "login":
-            cmd_login(conn, args, state)
-        elif cmd == "sqlmap":
-            cmd_sqlmap(conn, args, state)
-        elif cmd == "fix":
-            state["secure"] = True
-            slow_print("string concatenation → parameterized query ile değiştiriliyor...", DIM)
-            time.sleep(0.5)
-            slow_print("[✓] yama uygulandı. sistem artık GÜVENLİ.", GREEN)
-            print(f"  {DIM}doğrulamak için: sqlmap admin{RESET}\n")
-        elif cmd == "unfix":
-            state["secure"] = False
-            state["user"] = None
-            slow_print("[!] savunmasız koda geri dönüldü.", YELLOW)
-            print()
+            topic = args[0].lower() if args else ""
+            print_explain(topic)
+            continue
+
+        elif cmd == "status":
+            attack_info = simulate_attack(state, intensity)
+            print_dashboard(state, attack_info)
+            continue
+
+        elif cmd == "next":
+            intensity = min(intensity * 1.2, 3.0)
+            attack_info = simulate_attack(state, intensity)
+            print_dashboard(state, attack_info)
+            slow_print(f"Yeni saldırı dalgası! Yoğunluk: {intensity:.1f}x", YELLOW)
+            continue
+
+        elif cmd == "firewall":
+            if not args:
+                print(f"  {YELLOW}kullanım: firewall <IP> veya firewall auto{RESET}\n")
+                continue
+            if args[0] == "auto":
+                new_ips = [fake_ip(botnet=True) for _ in range(random.randint(40, 80))]
+                state.firewall_rules.extend(new_ips)
+                slow_print(f"[✓] {len(new_ips)} botnet IP'si otomatik engellendi.", GREEN)
+            else:
+                ip = args[0]
+                state.firewall_rules.append(ip)
+                slow_print(f"[✓] {ip} engellendi.", GREEN)
+
+        elif cmd == "ratelimit":
+            state.rate_limits["global"] = 10
+            slow_print("[✓] Rate limiting aktif: IP başına max 10 req/s", GREEN)
+
+        elif cmd == "cdn":
+            state.cdn_active = True
+            slow_print("[✓] CDN / Cloudflare aktif. Trafik filtreleniyor.", GREEN)
+
+        elif cmd == "loadbalancer":
+            state.load_balancer = True
+            state.max_capacity = 3000
+            slow_print("[✓] Load balancer devrede. Kapasite 3000 req/s'ye çıktı.", GREEN)
+
+        elif cmd == "captcha":
+            state.captcha_active = True
+            slow_print("[✓] CAPTCHA aktif. Bot trafiğinin %80'i engelleniyor.", GREEN)
+
+        elif cmd == "blackhole":
+            state.blackhole = True
+            slow_print("[✓] BGP Blackhole aktif. Saldırı trafiği null route'a yönlendirildi.", YELLOW)
+            slow_print("    UYARI: Meşru kullanıcılar da etkilenebilir.", YELLOW)
+
+        elif cmd == "scrubbing":
+            state.scrubbing = True
+            slow_print("[✓] Traffic scrubbing merkezi aktif. Trafik temizleniyor.", GREEN)
+
         else:
-            print(f"  {DIM}komut bulunamadı: {cmd}  ('help' ile komutları gör){RESET}\n")
+            print(f"  {DIM}komut bulunamadı: {cmd}  ('help' yaz){RESET}\n")
+            continue
+
+        # Her komuttan sonra bir tick simüle et
+        attack_info = simulate_attack(state, intensity)
+
+        # Sunucu kurtarıldı mı?
+        if state.current_load <= state.max_capacity and state.is_down:
+            state.is_down = False
+            print_dashboard(state, attack_info)
+            print(f"\n  {GREEN}{'█'*55}")
+            print(f"  █  🎉 BAŞARILI! Sunucu kurtarıldı!                   █")
+            print(f"  █  Servis yeniden çevrimiçi.                         █")
+            print(f"  {'█'*55}{RESET}\n")
+        else:
+            print_dashboard(state, attack_info)
+
+        if state.is_down:
+            remaining = state.current_load - state.max_capacity
+            slow_print(f"  Sunucu hâlâ çökmüş. Kapasiteyi {remaining} req/s daha azaltman gerekiyor.", YELLOW)
 
 if __name__ == "__main__":
     main()
